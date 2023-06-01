@@ -20,6 +20,8 @@ typedef struct JATapStorage {
     void *fft;
 } JATapStorage;
 
+#define MAX_QUEUE_LENGTH 2
+
 // TODO: Check for and report invalid state transitions.
 // TODO: Apply Apple's guidance on seeking: https://developer.apple.com/library/archive/qa/qa1820/_index.html
 @implementation AudioPlayer {
@@ -714,7 +716,7 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     // Regenerate queue
     if (!existingItem || _loopMode != loopOne) {
         BOOL include = NO;
-        for (int i = 0; i < [_order count]; i++) {
+        for (int i = 0; i < [_order count] && _player.items.count < MAX_QUEUE_LENGTH; i++) {
             int si = [_order[i] intValue];
             if (si == _index) include = YES;
             if (include && _indexedAudioSources[si].playerItem != existingItem) {
@@ -729,7 +731,7 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     }
 
     // Add next loop item if we're looping
-    if (_order.count > 0) {
+    if (_order.count > 0 && _player.items.count < MAX_QUEUE_LENGTH) {
         if (_loopMode == loopAll) {
             int si = [_order[0] intValue];
             //NSLog(@"### add loop item:%d", si);
@@ -1134,15 +1136,14 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
             IndexedAudioSource *audioSource = playerItem.audioSource;
             if (_loopMode == loopOne) {
                 [audioSource flip];
-                [self enqueueFrom:_index];
             } else if (_loopMode == loopAll) {
                 if (_index == [_order[0] intValue] && playerItem == audioSource.playerItem2) {
                     [audioSource flip];
-                    [self enqueueFrom:_index];
                 } else {
                     [self updateEndAction];
                 }
             }
+            [self enqueueFrom:_index];
             _justAdvanced = NO;
         }
     } else if ([keyPath isEqualToString:@"loadedTimeRanges"]) {
