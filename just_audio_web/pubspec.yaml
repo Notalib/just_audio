@@ -13,7 +13,10 @@ flutter:
 dependencies:
   # just_audio_platform_interface: ^4.2.1
   just_audio_platform_interface:
-    path: ../just_audio_platform_interface
+    git:
+      url: git@github.com:Notalib/just_audio.git
+      ref: lyt
+      path: just_audio_platform_interface
   flutter:
     sdk: flutter
   flutter_web_plugins:
