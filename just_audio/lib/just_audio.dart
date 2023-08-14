@@ -1013,6 +1013,9 @@ class AudioPlayer {
     _playInterrupted = false;
     // Update local state immediately so that queries aren't surprised.
     _playingSubject.add(false);
+    // Stop proxy (new one will be started on play),
+    // see https://github.com/ryanheise/just_audio/pull/812
+    _proxy.stop();
     await future;
   }
 
