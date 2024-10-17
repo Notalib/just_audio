@@ -20,7 +20,7 @@ typedef struct JATapStorage {
     void *fft;
 } JATapStorage;
 
-#define MAX_QUEUE_LENGTH 2
+#define TREADMILL_SIZE 2
 
 // TODO: Check for and report invalid state transitions.
 // TODO: Apply Apple's guidance on seeking: https://developer.apple.com/library/archive/qa/qa1820/_index.html
@@ -53,16 +53,13 @@ typedef struct JATapStorage {
     FlutterResult _playResult;
     id _timeObserver;
     BOOL _automaticallyWaitsToMinimizeStalling;
+    BOOL _allowsExternalPlayback;
     LoadControl *_loadControl;
     BOOL _playing;
     float _speed;
     float _volume;
     BOOL _justAdvanced;
-    BOOL _visualizerEnableWaveform;
-    BOOL _visualizerEnableFft;
-    int _visualizerCaptureRate;
-    int _visualizerCaptureSize;
-    int _visualizerSamplingRate;
+    BOOL _enqueuedAll;
     NSDictionary<NSString *, NSObject *> *_icyMetadata;
 }
 
@@ -106,6 +103,7 @@ typedef struct JATapStorage {
     _loadResult = nil;
     _playResult = nil;
     _automaticallyWaitsToMinimizeStalling = YES;
+    _allowsExternalPlayback = NO;
     _loadControl = nil;
     if (loadConfiguration != (id)[NSNull null]) {
         NSDictionary *map = loadConfiguration[@"darwinLoadControl"];
@@ -126,11 +124,7 @@ typedef struct JATapStorage {
     _speed = 1.0f;
     _volume = 1.0f;
     _justAdvanced = NO;
-    _visualizerEnableWaveform = NO;
-    _visualizerEnableFft = NO;
-    _visualizerCaptureRate = 0;
-    _visualizerCaptureSize = 0;
-    _visualizerSamplingRate = 0;
+    _enqueuedAll = NO;
     _icyMetadata = @{};
     __weak __typeof__(self) weakSelf = self;
     [_methodChannel setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
@@ -187,6 +181,9 @@ typedef struct JATapStorage {
         } else if ([@"setPreferredPeakBitRate" isEqualToString:call.method]) {
             [self setPreferredPeakBitRate:(NSNumber *)request[@"bitRate"]];
             result(@{});
+        } else if ([@"setAllowsExternalPlayback" isEqualToString:call.method]) {
+            [self setAllowsExternalPlayback:(BOOL)([request[@"allowsExternalPlayback"] intValue] == 1)];
+            result(@{});
         } else if ([@"seek" isEqualToString:call.method]) {
             CMTime position = request[@"position"] == (id)[NSNull null] ? kCMTimePositiveInfinity : CMTimeMake([request[@"position"] longLongValue], 1000000);
             [self seek:position index:request[@"index"] completionHandler:^(BOOL finished) {
@@ -206,8 +203,8 @@ typedef struct JATapStorage {
         } else {
             result(FlutterMethodNotImplemented);
         }
-    } @catch (id exception) {
-        //NSLog(@"Error in handleMethodCall");
+    } @catch (NSException *exception) {
+        //NSLog(@"%@", [exception callStackSymbols]);
         FlutterError *flutterError = [FlutterError errorWithCode:@"error" message:@"Error in handleMethodCall" details:nil];
         result(flutterError);
     }
@@ -472,17 +469,17 @@ static void processTap(MTAudioProcessingTapRef tap, CMItemCount frameCount, MTAu
         else if (unsignedSample < 0) unsignedSample = 0;
         waveform[i] = (UInt8)unsignedSample;
     }
-    
+
     // TODO: Take captureRate into account. Maybe let the main thread
     // periodically take samples, and we provide them here in a CMSimpleQueue.
     AudioPlayer *self = (__bridge AudioPlayer *)(storage->self);
     // NOTE: Apple recommends to NOT allocate any memory in the tap process function.
     // TODO: Check impact on performance and memory.
-    
+
     // FFT
     UInt8 *fftMag = (UInt8*)storage->fft;
     [AndroidFFT doFft:fftMag :waveform :captureSize];
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
         NSData *data = [NSData dataWithBytes:(void *)waveform length:captureSize];
         NSData *data2 = [NSData dataWithBytes:(void *)fftMag length:captureSize];
@@ -648,15 +645,16 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
 - (AudioSource *)decodeAudioSource:(NSDictionary *)data {
     NSString *type = data[@"type"];
     if ([@"progressive" isEqualToString:type]) {
-        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl];
+        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl headers:data[@"headers"] options:data[@"options"]];
     } else if ([@"dash" isEqualToString:type]) {
-        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl];
+        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl headers:data[@"headers"] options:data[@"options"]];
     } else if ([@"hls" isEqualToString:type]) {
-        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl];
+        return [[UriAudioSource alloc] initWithId:data[@"id"] uri:data[@"uri"] loadControl:_loadControl headers:data[@"headers"] options:data[@"options"]];
     } else if ([@"concatenating" isEqualToString:type]) {
         return [[ConcatenatingAudioSource alloc] initWithId:data[@"id"]
                                                audioSources:[self decodeAudioSources:data[@"children"]]
-                                               shuffleOrder:(NSArray<NSNumber *> *)data[@"shuffleOrder"]];
+                                               shuffleOrder:(NSArray<NSNumber *> *)data[@"shuffleOrder"]
+                                                lazyLoading:(NSNumber *)data[@"useLazyPreparation"]];
     } else if ([@"clipping" isEqualToString:type]) {
         return [[ClippingAudioSource alloc] initWithId:data[@"id"]
                                            audioSource:(UriAudioSource *)[self decodeAudioSource:data[@"child"]]
@@ -714,12 +712,19 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     /* [self dumpQueue]; */
 
     // Regenerate queue
+    _enqueuedAll = NO;
     if (!existingItem || _loopMode != loopOne) {
+        _enqueuedAll = YES;
         BOOL include = NO;
-        for (int i = 0; i < [_order count] && _player.items.count < MAX_QUEUE_LENGTH; i++) {
+        for (int i = 0; i < [_order count]; i++) {
             int si = [_order[i] intValue];
             if (si == _index) include = YES;
             if (include && _indexedAudioSources[si].playerItem != existingItem) {
+                if (_indexedAudioSources[si].lazyLoading && _player.items.count >= TREADMILL_SIZE) {
+                    // Enqueue up until the first lazy item that does not fit on the treadmill.
+                    _enqueuedAll = NO;
+                    break;
+                }
                 //NSLog(@"inserting item %d", si);
                 [_player insertItem:_indexedAudioSources[si].playerItem afterItem:nil];
                 if (_loopMode == loopOne) {
@@ -731,8 +736,8 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     }
 
     // Add next loop item if we're looping
-    if (_order.count > 0 && _player.items.count < MAX_QUEUE_LENGTH) {
-        if (_loopMode == loopAll) {
+    if (_order.count > 0) {
+        if (_loopMode == loopAll && _enqueuedAll) {
             int si = [_order[0] intValue];
             //NSLog(@"### add loop item:%d", si);
             if (!_indexedAudioSources[si].playerItem2) {
@@ -841,6 +846,9 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
                       forKeyPath:@"timeControlStatus"
                          options:NSKeyValueObservingOptionNew
                          context:nil];
+        }
+        if (@available(macOS 10.11, iOS 6.0, *)) {
+            _player.allowsExternalPlayback = _allowsExternalPlayback;
         }
         [_player addObserver:self
                   forKeyPath:@"currentItem"
@@ -1136,14 +1144,19 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
             IndexedAudioSource *audioSource = playerItem.audioSource;
             if (_loopMode == loopOne) {
                 [audioSource flip];
+                [self enqueueFrom:_index];
             } else if (_loopMode == loopAll) {
                 if (_index == [_order[0] intValue] && playerItem == audioSource.playerItem2) {
                     [audioSource flip];
+                    [self enqueueFrom:_index];
+                } else if (!_enqueuedAll) {
+                    [self enqueueFrom:_index];
                 } else {
                     [self updateEndAction];
                 }
+            } else if (!_enqueuedAll) {
+                [self enqueueFrom:_index];
             }
-            [self enqueueFrom:_index];
             _justAdvanced = NO;
         }
     } else if ([keyPath isEqualToString:@"loadedTimeRanges"]) {
@@ -1160,7 +1173,7 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
 - (void)sendErrorForItem:(IndexedPlayerItem *)playerItem {
     FlutterError *flutterError = [FlutterError errorWithCode:[NSString stringWithFormat:@"%d", (int)playerItem.error.code]
                                                      message:playerItem.error.localizedDescription
-                                                     details:nil];
+                                                     details:@{@"index": @([self indexForItem:playerItem])}];
     [self sendError:flutterError playerItem:playerItem];
 }
 
@@ -1359,6 +1372,15 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     }
 }
 
+- (void)setAllowsExternalPlayback:(BOOL)allowsExternalPlayback {
+    _allowsExternalPlayback = allowsExternalPlayback;
+    if (@available(macOS 10.11, iOS 6.0, *)) {
+        if (_player) {
+            _player.allowsExternalPlayback = allowsExternalPlayback;
+        }
+    }
+}
+
 - (void)seek:(CMTime)position index:(NSNumber *)newIndex completionHandler:(void (^)(BOOL))completionHandler {
     if (_processingState == none || _processingState == loading) {
         if (completionHandler) {
@@ -1440,6 +1462,7 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
                         _player.rate = _speed;
                     }
                 }
+                [self broadcastPlaybackEvent];
                 completionHandler(YES);
             }
         }
@@ -1498,6 +1521,15 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     if (!_player) return;
     if (_processingState != none) {
         [_player pause];
+
+        [self updatePosition];
+        [self broadcastPlaybackEvent];
+        if (_playResult) {
+            //NSLog(@"PLAY FINISHED DUE TO STOP");
+            _playResult(@{});
+            _playResult = nil;
+        }
+
         _processingState = none;
         // If used just before destroying the current FlutterEngine, this will result in:
         // NSInternalInconsistencyException: 'Sending a message before the FlutterEngine has been run.'
