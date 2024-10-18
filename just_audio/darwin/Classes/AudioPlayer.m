@@ -59,6 +59,11 @@ typedef struct JATapStorage {
     float _speed;
     float _volume;
     BOOL _justAdvanced;
+    BOOL _visualizerEnableWaveform;
+    BOOL _visualizerEnableFft;
+    int _visualizerCaptureRate;
+    int _visualizerCaptureSize;
+    int _visualizerSamplingRate;
     BOOL _enqueuedAll;
     NSDictionary<NSString *, NSObject *> *_icyMetadata;
 }
@@ -124,6 +129,11 @@ typedef struct JATapStorage {
     _speed = 1.0f;
     _volume = 1.0f;
     _justAdvanced = NO;
+    _visualizerEnableWaveform = NO;
+    _visualizerEnableFft = NO;
+    _visualizerCaptureRate = 0;
+    _visualizerCaptureSize = 0;
+    _visualizerSamplingRate = 0;
     _enqueuedAll = NO;
     _icyMetadata = @{};
     __weak __typeof__(self) weakSelf = self;

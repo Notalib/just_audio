@@ -1192,6 +1192,31 @@ class AudioPlayer {
         usage: audioAttributes.usage.value));
   }
 
+  /// Start the visualizer by capturing [captureSize] samples of audio at
+  /// [captureRate] millihertz. If [enableWaveform] is `true`, the captured
+  /// samples will be broadcast via [visualizerWaveformStream]. If [enableFft]
+  /// is `true`, the FFT data for each capture will be broadcast via
+  /// [visualizerFftStream]. You should call [stopVisualizer] to stop capturing
+  /// audio data.
+  Future<void> startVisualizer({
+    bool enableWaveform = true,
+    bool enableFft = true,
+    int? captureRate,
+    int? captureSize,
+  }) async {
+    await (await _platform).startVisualizer(_startVisualizerRequest = StartVisualizerRequest(
+        enableWaveform: enableWaveform,
+        enableFft: enableFft,
+        captureRate: captureRate,
+        captureSize: captureSize));
+  }
+
+  /// Stop capturing audio data for the visualizer.
+  Future<void> stopVisualizer() async {
+    _startVisualizerRequest = null;
+    (await _platform).stopVisualizer(StopVisualizerRequest());
+  }
+
   /// Set the `crossorigin` attribute on the `<audio>` element backing this
   /// player instance on web (see
   /// [HTMLMediaElement crossorigin](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/crossOrigin) ).
