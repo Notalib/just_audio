@@ -879,6 +879,18 @@ class AudioPlayer {
       return duration;
     } on PlatformException catch (e) {
       try {
+        // NOTA-FIX: BEGIN
+        // cant connect to servers
+        if (e.code == "-1004" && source is LockCachingAudioSource) {
+          // proxy is offline
+          try {
+            await _proxy._server.close(force: true);
+          } catch (_) {
+            // ignore err
+          }
+          await _proxy.start();
+        }
+        // NOTA-FIX: END
         throw PlayerException(int.parse(e.code), e.message,
             (e.details as Map<dynamic, dynamic>?)?.cast<String, dynamic>());
       } on FormatException catch (_) {
@@ -1017,6 +1029,12 @@ class AudioPlayer {
     _playInterrupted = false;
     // Update local state immediately so that queries aren't surprised.
     _playingSubject.add(false);
+    // NOTA-FIX: BEGIN
+    // Stop proxy (new one will be started on play),
+    // see https://github.com/ryanheise/just_audio/pull/812
+    // and https://github.com/ryanheise/just_audio/pull/1218
+    _proxy.stop();
+    // NOTA-FIX: END
     await future;
   }
 
@@ -2130,18 +2148,30 @@ class _ProxyHttpServer {
   /// Starts the server.
   Future<dynamic> start() async {
     _running = true;
-    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _server.listen((request) async {
-      if (request.method == 'GET') {
-        final uriPath = _requestKey(request.uri);
-        final handler = _handlerMap[uriPath]!;
-        handler(this, request);
-      }
-    }, onDone: () {
+    // NOTA-FIX: BEGIN
+    try {
+      _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      _server.listen((request) async {
+        if (request.method == 'GET') {
+          final uriPath = _requestKey(request.uri);
+          final handler = _handlerMap[uriPath]!;
+          handler(this, request);
+        }
+      }, onDone: () {
+        _running = false;
+      }, onError: (Object e, StackTrace st) async {
+        _running = false;
+        try {
+          await _server.close(force: true);
+        } catch (_) {
+          // ignore
+        }
+      }, cancelOnError: true);
+    } catch (_) {
+      // ignore
       _running = false;
-    }, onError: (Object e, StackTrace st) {
-      _running = false;
-    });
+    }
+    // NOTA-FIX: END
   }
 
   /// Stops the server
