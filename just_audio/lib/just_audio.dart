@@ -1013,16 +1013,15 @@ class AudioPlayer {
           await _proxy.start();
         }
         // NOTA-FIX: END
-        throw PlayerException(int.parse(e.code), e.message,
-            (e.details as Map<dynamic, dynamic>?)?.cast<String, dynamic>());
+        throw PlayerException(
+            int.parse(e.code), e.message, initialSeekValues?.index);
       } on FormatException catch (_) {
         if (e.code == 'abort') {
           throw PlayerInterruptedException(e.message);
         } else {
-          throw PlayerException(9999999, e.message);
+          throw PlayerException(9999999, e.message, initialSeekValues?.index);
         }
       }
-      throw _convertException(e);
     }
   }
 
