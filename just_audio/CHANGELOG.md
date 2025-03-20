@@ -1,6 +1,29 @@
+## 0.10.0
+
+* New playlist API.
+* Deprecate ConcatenatingAudioSource - use playlist API instead.
+* Deprecate LoopingAudioSource - Use List.filled(N, source) instead.
+* Replace playbackEventStream.onError by errorStream.
+* Add errorCode/errorMessage to PlaybackEvent.
+* Add maxSkipsOnError constructor parameter.
+* Fix conversion between milliBel and deciBel (@Chaphasilor).
+
+## 0.9.46
+
+* Fix SwiftPM support on macOS.
+
+## 0.9.45
+
+* Add setWebSinkId for web (@dganzella).
+
+## 0.9.44
+
+* Add support for SwiftPM.
+
 ## 0.9.43
 
 * Fix NPE in load on iOS/macOS.
+* Migrate to media3 ExoPlayer 1.4.1 on Android (@hansvdwd and @ryanheise).
 
 ## 0.9.42
 
