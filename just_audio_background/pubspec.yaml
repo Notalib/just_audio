@@ -9,12 +9,12 @@ topics:
   - background
 
 dependencies:
-  # just_audio_platform_interface: ^4.5.0
-  just_audio_platform_interface:
-    git:
-      url: git@github.com:Notalib/just_audio.git
-      ref: lyt4
-      path: just_audio_platform_interface
+  just_audio_platform_interface: ^4.5.0
+  # just_audio_platform_interface:
+    # git:
+      # url: git@github.com:Notalib/just_audio.git
+      # ref: lyt4
+      # path: just_audio_platform_interface
   audio_service: ^0.18.14
   audio_session: ^0.1.25
   flutter:
