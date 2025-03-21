@@ -9,7 +9,7 @@ topics:
   - background
 
 dependencies:
-  just_audio_platform_interface: ^4.5.0
+  just_audio_platform_interface: ^4.4.0
   # just_audio_platform_interface:
     # git:
       # url: git@github.com:Notalib/just_audio.git
