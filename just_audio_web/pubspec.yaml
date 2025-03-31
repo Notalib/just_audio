@@ -3,6 +3,8 @@ description: Web platform implementation of just_audio. This implementation is e
 homepage: https://github.com/ryanheise/just_audio/tree/master/just_audio_web
 version: 0.4.15
 
+publish_to: none
+
 flutter:
   plugin:
     platforms:
