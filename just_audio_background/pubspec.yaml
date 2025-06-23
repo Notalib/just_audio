@@ -17,7 +17,11 @@ dependencies:
       url: git@github.com:Notalib/just_audio.git
       ref: lyt4
       path: just_audio_platform_interface
-  audio_service: ^0.18.18
+  audio_service:
+    git:
+      url: git@github.com:Notalib/audio_service.git
+      ref: lyt
+      path: audio_service
   audio_session: ^0.1.25
   flutter:
     sdk: flutter
